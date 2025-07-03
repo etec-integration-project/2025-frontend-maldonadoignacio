@@ -11,13 +11,13 @@
         Chat
         <span class="close-btn">×</span>
       </div>
-      <div class="messages" ref="messagesContainer">
+      <div class="messages" ref="messagesContainer" @scroll.passive="onScroll">
         <div
           v-for="msg in messages"
           :key="msg._id || msg.tempId"
           :class="['message', msg.fromUserId === userId ? 'sent' : 'received']"
         >
-          <div v-if="msg.text" class="text">{{ msg.text }}</div>
+          <div v-if="msg.text" class="text" @dblclick="addReaction(msg,'👍')">{{ msg.text }}</div>
           <img
             v-if="msg.imageUrl"
             :src="backendOrigin + msg.imageUrl"
@@ -25,17 +25,25 @@
             @click="openImage(msg.imageUrl)"
           />
           <span class="timestamp">{{ formatDate(msg.createdAt) }}</span>
+          <span v-for="(r,i) in msg.reactions" :key="i" class="reaction">{{ r.emoji }}</span>
         </div>
       </div>
       <div class="input-area">
-        <button class="send" type="button" @click="sendMessage">📨 Enviar</button>
+        <div v-if="previewUrl" class="preview">
+          <img :src="previewUrl" class="preview-img" />
+          <progress v-if="uploadProgress>0 && uploadProgress<100" :value="uploadProgress" max="100" class="prog" />
+          <button type="button" class="remove-preview" @click="clearFile">×</button>
+        </div>
+        
         <input
           v-model="newMessage"
+          @input="handleTyping"
           @keyup.enter="sendMessage"
           placeholder="Escribe un mensaje..."
         />
         <input type="file" ref="fileInput" @change="handleFile" hidden />
         <button class="attach" type="button" @click="$refs.fileInput.click()">📎 Adjuntar</button>
+        <button class="send" type="button" @click="sendMessage">📨 Enviar</button>
       </div>
     </div>
   </div>
@@ -56,6 +64,9 @@ export default {
       isOpen: false,
       userId: localStorage.getItem('username') || 'guest-' + Math.random().toString(36).substring(2, 8),
       pendingFile: null,
+      previewUrl: '',
+      uploadProgress: 0,
+      oldestTs: null,
     };
   },
   methods: {
@@ -68,7 +79,22 @@ export default {
     },
     handleFile(e) {
       const file = e.target.files[0];
-      if (file) this.pendingFile = file;
+      if (file) {
+        this.pendingFile = file;
+        this.previewUrl = URL.createObjectURL(file);
+      }
+    },
+    clearFile() {
+      this.uploadProgress = 0;
+      if (this.previewUrl) {
+        URL.revokeObjectURL(this.previewUrl);
+      }
+      this.previewUrl = '';
+      this.pendingFile = null;
+      this.$refs.fileInput.value = '';
+    },
+    handleTyping() {
+      this.socket.emit('typing', { fromUserId: this.userId, toUserId: 'admin', typing: true });
     },
     async sendMessage() {
       if (!this.newMessage.trim() && !this.pendingFile) return;
@@ -80,6 +106,9 @@ export default {
           form.append('image', this.pendingFile);
           const res = await axios.post(this.backendOrigin + '/api/upload', form, {
             headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress: (e) => {
+              if (e.total) this.uploadProgress = Math.round((e.loaded * 100) / e.total);
+            },
           });
           imageUrl = res.data.imageUrl;
         } catch (err) {
@@ -89,8 +118,8 @@ export default {
 
       this.emitMessage({ text: this.newMessage, imageUrl });
       this.newMessage = '';
-      this.pendingFile = null;
-      this.$refs.fileInput.value = '';
+      this.clearFile();
+      this.uploadProgress = 0;
     },
     emitMessage({ text = '', imageUrl = '' }) {
       const payload = {
@@ -104,6 +133,7 @@ export default {
       this.messages.push(payload);
       this.$nextTick(() => {
         this.scrollBottom();
+        if(!this.oldestTs || payload.createdAt<this.oldestTs) this.oldestTs = payload.createdAt;
       });
       this.socket.emit('chatMessage', payload);
     },
@@ -121,10 +151,31 @@ export default {
           params: { userId: this.userId },
         });
         this.messages = res.data;
+        if(res.data.length) this.oldestTs = res.data[0].createdAt;
         this.$nextTick(() => this.scrollBottom());
       } catch (err) {
         console.error(err);
       }
+    },
+    onScroll(e) {
+      const el = e.target;
+      if (el.scrollTop === 0 && this.oldestTs) {
+        this.loadMore();
+      }
+    },
+    async loadMore() {
+      try {
+        const res = await axios.get(this.backendOrigin + '/api/messages', {
+          params: { userId: this.userId, oldestTs: this.oldestTs },
+        });
+        this.messages = [...res.data, ...this.messages];
+        if(res.data.length) this.oldestTs = res.data[0].createdAt;
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    addReaction(msg, emoji) {
+      this.socket.emit('reaction', { messageId: msg._id, emoji, userId: this.userId });
     },
   },
   mounted: async function () {
@@ -138,6 +189,11 @@ export default {
       this.socket.emit('register', { userId: this.userId });
       console.log('socket registered');
       console.log('socket connected');
+    });
+
+    this.socket.on('reaction',(r)=>{
+      const m=this.messages.find(m=>m._id===r.messageId);
+      if(m){if(!m.reactions) m.reactions=[]; m.reactions.push({emoji:r.emoji,userId:r.userId});}
     });
 
     this.socket.on('chatMessage', (msg) => {
@@ -261,6 +317,23 @@ export default {
   border: none;
   color: #fff;
   font-size: 20px;
+  cursor: pointer;
+}
+.preview {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.preview-img {
+  max-width: 60px;
+  max-height: 60px;
+  border-radius: 4px;
+}
+.remove-preview {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 18px;
   cursor: pointer;
 }
 </style>

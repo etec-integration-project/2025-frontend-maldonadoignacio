@@ -6,6 +6,7 @@ const messageSchema = new mongoose.Schema(
     toUserId: { type: String, required: false },
     text: { type: String, default: '' },
     imageUrl: { type: String, default: '' },
+    reactions: { type: [{ userId: String, emoji: String }], default: [] },
   },
   { timestamps: true }
 );

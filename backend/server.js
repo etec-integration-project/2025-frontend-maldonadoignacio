@@ -113,16 +113,27 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 // Endpoint para obtener historial de mensajes entre un usuario y el administrador
 app.get('/api/messages', async (req, res) => {
   const { userId } = req.query;
-  if (!userId) {
-    return res.status(400).json({ message: 'userId requerido' });
-  }
   try {
-    const messages = await Message.find({
-      $or: [
-        { fromUserId: userId, toUserId: 'admin' },
-        { fromUserId: 'admin', toUserId: userId },
-      ],
-    }).sort({ createdAt: 1 });
+    let filter;
+    if (!userId || userId === 'all') {
+      // Todas las quejas enviadas al administrador
+      filter = { toUserId: 'admin' };
+    } else {
+      // Conversación 1-a-1 entre usuario y admin
+      filter = {
+        $or: [
+          { fromUserId: userId, toUserId: 'admin' },
+          { fromUserId: 'admin', toUserId: userId },
+        ],
+      };
+    }
+
+    const { limit = 20, before } = req.query;
+    const query = Message.find(filter);
+    if (before) query.where('createdAt').lt(new Date(parseInt(before)));
+    query.sort({ createdAt: -1 }).limit(parseInt(limit));
+    const messages = await query.exec();
+    messages.reverse();
     res.json(messages);
   } catch (err) {
     console.error('Error obteniendo mensajes:', err);
@@ -152,6 +163,24 @@ io.on('connection', (socket) => {
     if (!userId) return;
     socket.join(userId);
     console.log(`Socket ${socket.id} joined room ${userId}`);
+  });
+
+  socket.on('typing', (payload) => {
+    if (!payload || !payload.toUserId) return;
+    io.to(payload.toUserId).emit('typing', payload);
+  });
+
+  socket.on('reaction', async (payload) => {
+    // payload: { messageId, emoji, userId }
+    if(!payload) return;
+    try {
+      const msg = await Message.findById(payload.messageId);
+      if(!msg) return;
+      msg.reactions.push({ userId: payload.userId, emoji: payload.emoji });
+      await msg.save();
+      io.to(msg.toUserId).emit('reaction', { messageId: msg._id, emoji: payload.emoji, userId: payload.userId });
+      io.to(msg.fromUserId).emit('reaction', { messageId: msg._id, emoji: payload.emoji, userId: payload.userId });
+    } catch(e){ console.error('reaction error',e); }
   });
 
   socket.on('chatMessage', async (payload) => {

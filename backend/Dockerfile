@@ -9,6 +9,8 @@ COPY package*.json ./
 
 # Instalar dependencias
 RUN npm install
+RUN npm install --save-dev @babel/core @babel/eslint-parser eslint-plugin-vue
+RUN npm install -g dotenv-cli
 
 # Copiar el resto del código fuente
 COPY . .
@@ -17,4 +19,4 @@ COPY . .
 EXPOSE 3000
 
 # Comando para ejecutar la aplicación
-CMD ["npm", "start"]
+CMD ["dotenv", "--", "npm", "start"]
