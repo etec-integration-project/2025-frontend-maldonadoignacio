@@ -1,6 +1,6 @@
-FROM node:20-slim
+FROM node:18-alpine
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
 COPY package*.json ./
 
@@ -9,6 +9,8 @@ RUN npm install
 RUN npm install --save-dev @babel/core @babel/eslint-parser eslint-plugin-vue
 
 COPY . .
+
+RUN npm run build
 
 EXPOSE 8080
 

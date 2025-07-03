@@ -1,8 +1,8 @@
 # Usar una imagen base de Node.js
-FROM node:20-slim
+FROM node:18-alpine
 
 # Crear y establecer el directorio de trabajo
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # Copiar package.json y package-lock.json
 COPY package*.json ./
@@ -14,7 +14,7 @@ RUN npm install
 COPY . .
 
 # Exponer el puerto
-EXPOSE 4000
+EXPOSE 3000
 
 # Comando para ejecutar la aplicación
 CMD ["npm", "start"]

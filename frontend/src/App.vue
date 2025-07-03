@@ -41,6 +41,7 @@
           </transition>
         </router-view>
       </main>
+        <ChatWidget />
     </div>
 
     <footer>
@@ -83,7 +84,9 @@
 </template>
 
 <script>
+import ChatWidget from './components/Chat.vue';
 export default {
+  components: { ChatWidget },
   name: 'App',
   data() {
     return {
